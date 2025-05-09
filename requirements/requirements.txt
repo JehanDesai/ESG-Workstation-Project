@@ -1,0 +1,26 @@
+# PyTorch Core
+# torch==2.2.2
+torchvision==0.17.2
+torchaudio==2.2.2
+
+# PyG deps compatible with torch 2.2.2
+torch-scatter==2.1.2
+torch-sparse==0.6.19
+torch-cluster==1.6.3
+torch-spline-conv==1.2.3
+pyg-lib==0.4.0
+
+# PyG core
+torch-geometric==2.5.1
+
+# NLP / ML
+transformers==4.39.3
+sentence-transformers==2.2.2
+scikit-learn==1.4.1
+pandas==2.2.1
+networkx==3.2.1
+matplotlib==3.8.3
+tqdm==4.66.2
+
+# Neo4j
+neo4j==5.18.0
