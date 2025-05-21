@@ -10574,10 +10574,10 @@
     "total_sentences": 4662,
     "esg_relevant_sentences": 2641,
     "environmental_sentences": 1073,
-    "avg_environmental_score": 0.6863081078128869,
+    "avg_environmental_score": 0.6863081078128868,
     "social_sentences": 922,
-    "avg_social_score": 0.6796869853327215,
+    "avg_social_score": 0.6796869853327213,
     "governance_sentences": 646,
-    "avg_governance_score": 0.6813651817009639
+    "avg_governance_score": 0.6813651817009663
   }
 }
