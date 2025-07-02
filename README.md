@@ -6,21 +6,9 @@ This code implements an ESG (Environmental, Social, Governance) scoring system t
 
 ## Neo4j Integration Points
 
-### 1. Database Connection and Setup
-
-```python
-# Connection configuration
-NEO4J_URI = "bolt://localhost:7687"  
-NEO4J_USER = "neo4j"              
-NEO4J_PASSWORD = "12345678"
-
-# Connection establishment
-graph = Graph(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-```
-
 The system connects to a local Neo4j instance using the `py2neo` library, which provides a Python interface for Neo4j operations.
 
-### 2. Knowledge Graph Schema
+### Knowledge Graph Schema
 
 Based on the Cypher queries in the code, the Neo4j knowledge graph implements the following schema:
 
@@ -44,36 +32,17 @@ Based on the Cypher queries in the code, the Neo4j knowledge graph implements th
 
 ## Knowledge Graph Implementation Details
 
-### 3. Data Extraction and Processing
+### Data Extraction and Processing
 
 The `ESGGraphDataset` class serves as the primary interface between Neo4j and the GNN system:
 
 #### a) Node Feature Extraction
-```python
-def _build_node_features(self, sentences):
-    # Extract sentence embeddings using transformer models
-    texts = [s['text'] for s in sentences]
-    embeddings = self.embedding_model.encode(texts, show_progress_bar=True)
-    
-    # Add ESG domain-specific features
-    esg_features = torch.zeros((len(sentences), 3))  # env, social, gov
-```
 
-**Neo4j Query Used:**
-```cypher
-MATCH (s:Sentence) RETURN s.id as id, s.text as text
-```
-
-This query retrieves all sentence nodes with their textual content, which is then processed to create:
+This retrieves all sentence nodes with their textual content, which is then processed to create:
 - **Semantic embeddings**: Using sentence transformers for contextual understanding
 - **Domain-specific features**: Keyword-based ESG categorization features
 
 #### b) Graph Structure Creation
-```python
-def _build_edge_index(self, sentence_nodes, embeddings=None, similarity_threshold=0.6, max_connections=10):
-    # Create edges based on semantic similarity between sentences
-    similarities = cosine_similarity(batch_embeddings, embeddings)
-```
 
 The system creates a **hybrid graph structure**:
 - **Structural edges**: Based on document containment relationships from Neo4j
@@ -81,40 +50,12 @@ The system creates a **hybrid graph structure**:
 - **Weighted connections**: Edge weights represent semantic similarity scores
 
 #### c) Label Extraction
-```python
-def _get_sentence_labels(self, sentence_nodes):
-    # Query ESG scores for each sentence
-    scores = self.graph.run("""
-        MATCH (s:Sentence {id: $id})-[r:CATEGORIZED_AS]->(c:Category) 
-        RETURN c.name as category, r.score as score
-    """, id=node['id']).data()
-```
-
-**Neo4j Query Pattern:**
-```cypher
-MATCH (s:Sentence {id: $id})-[r:CATEGORIZED_AS]->(c:Category) 
-RETURN c.name as category, r.score as score
-```
 
 This extracts ground truth ESG scores from the knowledge graph for supervised learning.
 
-### 4. Document-Level Prediction
+### Document-Level Prediction
 
 #### Document Processing Pipeline
-```python
-def predict_document_scores(self, graph, document_id, model_path=None):
-    # Retrieve sentences for a specific document
-    sentences = graph.run("""
-        MATCH (d:Document {filename: $doc_id})-[:CONTAINS]->(s:Sentence)
-        RETURN s.id as id, s.text as text
-    """, doc_id=document_id).data()
-```
-
-**Neo4j Query Used:**
-```cypher
-MATCH (d:Document {filename: $doc_id})-[:CONTAINS]->(s:Sentence)
-RETURN s.id as id, s.text as text
-```
 
 ## Why Neo4j Knowledge Graph is Used
 
@@ -127,16 +68,6 @@ RETURN s.id as id, s.text as text
 - **Traversal Efficiency**: Quick navigation from documents to sentences to categories
 - **Pattern Matching**: Cypher queries naturally express complex relationship patterns
 - **Aggregation Capabilities**: Can perform complex analytics across the graph structure
-
-### 3. **Data Integration Benefits**
-- **Centralized Knowledge Base**: Single source of truth for ESG-related information
-- **Relationship Preservation**: Maintains context between documents, sentences, and scores
-- **Scalability**: Neo4j handles large-scale graph operations efficiently
-
-### 4. **Machine Learning Integration**
-- **Feature Engineering**: Graph structure provides additional features for ML models
-- **Ground Truth Storage**: ESG scores stored as relationship properties serve as training labels
-- **Dynamic Updates**: Easy to update scores and relationships as new data arrives
 
 ## System Architecture Flow
 
@@ -152,7 +83,7 @@ RETURN s.id as id, s.text as text
 5. ESG Score Predictions (Output)
 ```
 
-### Key Advantages of This Architecture:
+### Key notes about the Architecture:
 
 1. **Semantic Understanding**: Combines symbolic knowledge (graph relationships) with statistical learning (embeddings)
 
@@ -164,22 +95,9 @@ RETURN s.id as id, s.text as text
 
 5. **Extensibility**: Easy to add new document types, ESG categories, or relationship types
 
-## Knowledge Graph Value Proposition
-
-The Neo4j knowledge graph serves as more than just a database—it's the **semantic backbone** of the ESG analysis system:
-
-- **Preserves Domain Knowledge**: ESG relationships and hierarchies are explicitly modeled
-- **Enables Complex Reasoning**: Can traverse multiple relationship types in single queries  
-- **Supports Incremental Learning**: New documents and scores can be added without retraining
-- **Facilitates Explainable AI**: Prediction paths can be traced through the graph structure
-
 This implementation demonstrates how knowledge graphs can enhance machine learning by providing structured domain knowledge, rich feature representations, and interpretable data relationships that pure text-based approaches cannot easily capture.
 
-## Knowledge Graph Construction and Design
-
-### Knowledge Graph Creation Process
-
-While the provided code focuses on consuming data from Neo4j, the knowledge graph construction likely follows this pipeline:
+### Workflow for Ankit and Murli
 
 #### 1. **Document Ingestion Pipeline**
 ```cypher
@@ -195,7 +113,7 @@ CREATE (d:Document {
 ```
 
 #### 2. **Text Processing and Sentence Extraction**
-The system appears to use a document processing pipeline that:
+The document processing pipeline:
 - **Extracts text** from PDF/document files
 - **Segments into sentences** using NLP libraries (like spaCy or NLTK)
 - **Creates sentence nodes** with unique identifiers
@@ -226,7 +144,7 @@ CREATE (gov:Category {name: "Governance", description: "Ethics, compliance, tran
 
 #### 4. **ESG Score Assignment Methods**
 
-The knowledge graph likely incorporates multiple scoring methodologies:
+The knowledge graph incorporates multiple scoring methodologies:
 
 ##### a) **Rule-Based Scoring**
 ```python
@@ -258,7 +176,7 @@ CREATE (s)-[:CATEGORIZED_AS {
 }]->(env)
 ```
 
-##### c) **Machine Learning Model Scores**
+##### c) **Model Scores**
 ```cypher
 // Store ML-generated scores
 MATCH (s:Sentence {id: "sent_002_doc_abc_2023"})
@@ -272,7 +190,6 @@ CREATE (s)-[:CATEGORIZED_AS {
 }]->(soc)
 ```
 
-### Extended Knowledge Graph Schema
 
 #### **Complete Node Types:**
 ```cypher
@@ -354,117 +271,6 @@ CREATE (s)-[:CATEGORIZED_AS {
 // Semantic relationships
 (Sentence)-[:SIMILAR_TO {similarity_score: float}]->(Sentence)
 (ESGTopic)-[:RELATED_TO {strength: float}]->(ESGTopic)
-```
-
-### Knowledge Graph Population Strategies
-
-#### 1. **Automated Text Processing Pipeline**
-```python
-def build_knowledge_graph(documents_path, neo4j_connection):
-    for document in documents:
-        # Step 1: Document ingestion
-        doc_node = create_document_node(document)
-        
-        # Step 2: Text extraction and segmentation
-        paragraphs = extract_paragraphs(document)
-        sentences = extract_sentences(paragraphs)
-        
-        # Step 3: Create text hierarchy
-        for para in paragraphs:
-            create_paragraph_node(para, doc_node)
-            for sent in para.sentences:
-                create_sentence_node(sent, para)
-        
-        # Step 4: ESG scoring
-        for sentence in sentences:
-            esg_scores = score_sentence_esg(sentence.text)
-            create_esg_relationships(sentence, esg_scores)
-        
-        # Step 5: Entity extraction
-        entities = extract_entities(document.text)
-        create_entity_relationships(sentences, entities)
-```
-
-#### 2. **Multi-Source Data Integration**
-```cypher
-// Integrate external ESG frameworks
-LOAD CSV WITH HEADERS FROM 'file:///gri_standards.csv' AS row
-CREATE (topic:ESGTopic {
-    name: row.topic_name,
-    gri_code: row.gri_disclosure,
-    category: row.category,
-    description: row.description
-})
-
-// Link to existing categories
-MATCH (topic:ESGTopic), (cat:Category)
-WHERE topic.category = cat.name
-CREATE (topic)-[:BELONGS_TO]->(cat)
-```
-
-### Knowledge Graph Quality Assurance
-
-#### **Data Validation Queries**
-```cypher
-// Check for orphaned sentences
-MATCH (s:Sentence) 
-WHERE NOT (s)<-[:CONTAINS]-(:Document)
-RETURN count(s) as orphaned_sentences
-
-// Validate ESG score distributions
-MATCH (s:Sentence)-[r:CATEGORIZED_AS]->(c:Category)
-RETURN c.name, 
-       avg(r.score) as avg_score,
-       stdev(r.score) as score_stddev,
-       count(r) as total_sentences
-
-// Find sentences with missing ESG scores
-MATCH (s:Sentence)
-WHERE NOT (s)-[:CATEGORIZED_AS]->(:Category)
-RETURN count(s) as unscored_sentences
-```
-
-#### **Graph Statistics and Insights**
-```cypher
-// Knowledge graph statistics
-MATCH (n) RETURN labels(n) as node_type, count(n) as count
-UNION
-MATCH ()-[r]->() RETURN type(r) as relationship_type, count(r) as count
-
-// ESG coverage analysis
-MATCH (d:Document)-[:CONTAINS]->(s:Sentence)-[r:CATEGORIZED_AS]->(c:Category)
-WHERE r.score > 0.7
-RETURN d.filename, c.name, count(s) as high_score_sentences
-ORDER BY high_score_sentences DESC
-```
-
-### Knowledge Graph Evolution and Maintenance
-
-#### **Incremental Updates**
-```cypher
-// Add new documents without disrupting existing structure
-MERGE (d:Document {filename: $new_filename})
-ON CREATE SET d.created_at = datetime(), d.processing_status = "new"
-ON MATCH SET d.last_updated = datetime()
-```
-
-#### **Schema Evolution**
-```cypher
-// Add new ESG frameworks
-CREATE (tcfd:Framework {name: "TCFD", full_name: "Task Force on Climate-related Financial Disclosures"})
-
-// Migrate existing categories to framework structure
-MATCH (c:Category)
-CREATE (c)-[:FOLLOWS]->(tcfd)
-```
-
-#### **Quality Metrics**
-```cypher
-// Monitor data quality over time
-MATCH (s:Sentence)-[r:CATEGORIZED_AS]->(c:Category)
-WHERE r.confidence < 0.5
-RETURN c.name, count(r) as low_confidence_scores,
-       avg(r.confidence) as avg_confidence
 ```
 
 This knowledge graph construction approach enables the ESG GNN system to leverage rich, structured domain knowledge while maintaining flexibility for future enhancements and ensuring data quality through systematic validation and monitoring processes.
