@@ -3,8 +3,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import pandas as pd
-from torch_geometric.nn import GCNConv, SAGEConv, GATConv, TransformerConv
-from torch_geometric.nn import BatchNorm, LayerNorm
+from torch_geometric.nn import GCNConv, SAGEConv, GATConv, TransformerConv, BatchNorm
 from torch_geometric.data import Data, Dataset
 from torch_geometric.loader import DataLoader
 from sklearn.model_selection import train_test_split, KFold
@@ -17,10 +16,8 @@ import random
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-# Dataset for loading ESG graph data from Neo4j
+
 class ESGGraphDataset(Dataset):
-    
-    # Initialize the dataset
     def __init__(self, graph, transform=None, pre_transform=None, embedding_model='all-MiniLM-L6-v2'):
         self.graph = graph
         self.embedding_model = SentenceTransformer(embedding_model)
@@ -42,18 +39,13 @@ class ESGGraphDataset(Dataset):
     # Extract features from sentence nodes using a pre-trained sentence transformer
     def _build_node_features(self, sentences):
         print("Building node features using sentence embeddings...")
-        
-        # Get all sentence texts
+        # getting all sentence texts
         texts = [s['text'] for s in sentences]
-        
-        # Generate embeddings for all sentences in batches
+        # generating embeddings for all sentences in batches
         embeddings = self.embedding_model.encode(texts, show_progress_bar=True)
-        
-        # Convert to tensor
+        # converting to tensor
         X = torch.FloatTensor(embeddings)
-        
-        # Add ESG domain knowledge as additional features (optional enhancement)
-        esg_features = torch.zeros((len(sentences), 3))  # [env, social, gov]
+        esg_features = torch.zeros((len(sentences), 3))  # env, social and gov
         
         for i, s in enumerate(sentences):
             text = s['text'].lower()
@@ -67,84 +59,63 @@ class ESGGraphDataset(Dataset):
             gov_keywords = ['governance', 'board', 'compliance', 'ethics', 'transparency', 
                            'risk', 'audit', 'executive', 'compensation', 'shareholder', 'accountability']
             
-            # Count keyword occurrences
+            # count keyword occurrences
             env_count = sum(1 for word in env_keywords if word in text)
             social_count = sum(1 for word in social_keywords if word in text)
             gov_count = sum(1 for word in gov_keywords if word in text)
             
-            # Normalize counts
+            # normalizing counts
             total = max(1, env_count + social_count + gov_count)
             esg_features[i, 0] = env_count / total
             esg_features[i, 1] = social_count / total  
             esg_features[i, 2] = gov_count / total
         
-        # Concatenate sentence embeddings with ESG domain features
+        # concatenate sentence embeddings with ESG domain features
         X = torch.cat([X, esg_features], dim=1)
-        
         print(f"Node features shape: {X.shape}")
         return X
 
     
     def _build_edge_index(self, sentence_nodes, embeddings=None, similarity_threshold=0.6, max_connections=10):
         print("Building edge index based on semantic similarity...")
-
-        # Skip Neo4j query to avoid timeout issues
-        print("Skipping document-based edge creation from Neo4j")
-
         edge_index = []
         edge_weights = []
-
         # Get sentence texts and convert embeddings to numpy for similarity calculation
         if embeddings is None:
             texts = [node['text'] for node in sentence_nodes]
             embeddings = self.embedding_model.encode(texts, show_progress_bar=True)
-
         print("Computing semantic similarities...")
         num_nodes = len(sentence_nodes)
         batch_size = 100  # Process in batches to avoid memory issues
-
         for i in range(0, num_nodes, batch_size):
             end_i = min(i + batch_size, num_nodes)
             batch_embeddings = embeddings[i:end_i]
-
-            # Compute similarity between this batch and all nodes
             similarities = cosine_similarity(batch_embeddings, embeddings)
-
             # For each node in the batch, add edges to most similar nodes
             for batch_idx, global_idx in enumerate(range(i, end_i)):
                 sim_scores = similarities[batch_idx]
-                sim_scores[global_idx] = 0  # Remove self-similarity
-
+                sim_scores[global_idx] = 0  # removing self-similarity
                 top_indices = np.argsort(sim_scores)[-max_connections:]
                 top_scores = sim_scores[top_indices]
-
                 for j, score in zip(top_indices, top_scores):
                     if score >= similarity_threshold:
                         edge_index.append([global_idx, j])
                         edge_weights.append(float(score))
-
-        # Convert to tensor
+        # converting to tensor
         edge_index = torch.LongTensor(edge_index).t()
         edge_weights = torch.FloatTensor(edge_weights)
-
         print(f"Created edge index with {edge_index.shape[1]} edges")
         return edge_index, edge_weights
  
     # Get ESG scores for each sentence with data augmentation
     def _get_sentence_labels(self, sentence_nodes):
         print("Getting sentence labels...")
-        
-        y = np.zeros((len(sentence_nodes), 3))  # [env_score, social_score, gov_score]
-        
-        # For each sentence, get its ESG scores
+        y = np.zeros((len(sentence_nodes), 3))
+        # get ESG scores for each sentence
         for i, node in enumerate(sentence_nodes):
-            # Query for ESG scores
-            scores = self.graph.run("""
-                MATCH (s:Sentence {id: $id})-[r:CATEGORIZED_AS]->(c:Category)
-                RETURN c.name as category, r.score as score
-            """, id=node['id']).data()
-            
-            # Assign scores to appropriate position in label matrix
+            # query for ESG scores
+            scores = self.graph.run("""MATCH (s:Sentence {id: $id})-[r:CATEGORIZED_AS]->(c:Category) RETURN c.name as category, r.score as score""", id=node['id']).data()
+            # assign scores to appropriate position in label matrix
             for score_data in scores:
                 if score_data['category'] == 'Environmental':
                     y[i, 0] = score_data['score']
@@ -152,49 +123,31 @@ class ESGGraphDataset(Dataset):
                     y[i, 1] = score_data['score']
                 elif score_data['category'] == 'Governance':
                     y[i, 2] = score_data['score']
-        
         return torch.FloatTensor(y)
     
-    # Process the Neo4j data into a PyTorch Geometric graph
+    # process the Neo4j data into a PyTorch Geometric graph
     def process(self):
         if not os.path.exists(self.processed_dir):
             os.makedirs(self.processed_dir)
-            
         # Load data from Neo4j - all sentences
-        sentence_nodes = list(self.graph.run("""
-            MATCH (s:Sentence)
-            RETURN s.id as id, s.text as text
-        """).data())
-        
+        sentence_nodes = list(self.graph.run("""MATCH (s:Sentence) RETURN s.id as id, s.text as text""").data())
         print(f"Loaded {len(sentence_nodes)} sentence nodes from Neo4j")
-        
         if not sentence_nodes:
             raise ValueError("No sentence nodes found in the database!")
-            
-        # Build features
+        # build features
         x = self._build_node_features(sentence_nodes)
-        
-        # Build edge index with weights based on semantic similarity
+        # Bbuild edge index with weights based on semantic similarity
         edge_index, edge_weights = self._build_edge_index(sentence_nodes, embeddings=x[:, :-3])
-        
-        # Get ESG scores as labels
+        # get ESG scores as labels
         y = self._get_sentence_labels(sentence_nodes)
-        
-        # Create PyG Data object
+        # create PyG data object
         data = Data(x=x, edge_index=edge_index, edge_attr=edge_weights, y=y)
         self.data = data
-        
-        # Save data
         torch.save(data, os.path.join(self.processed_dir, 'esg_data.pt'))
-        
-        # Save node mapping for later reference
+        # save node mapping for later reference
         with open(os.path.join(self.processed_dir, 'node_mapping.pkl'), 'wb') as f:
             pickle.dump({i: node['id'] for i, node in enumerate(sentence_nodes)}, f)
-        
         print("Data processing complete!")
-    
-    def len(self):
-        return 1
     
     def get(self, idx):
         return self.data
