@@ -152,21 +152,17 @@ class ESGGraphDataset(Dataset):
     def get(self, idx):
         return self.data
 
-# Improved Graph Neural Network for ESG score prediction
+# Graph Neural Network for ESG score prediction
 class ImprovedESGGNN(torch.nn.Module):
-    
-    # Initialize the GNN with multiple architectures
     def __init__(self, input_dim, hidden_dim=128, output_dim=3, dropout=0.3, 
                  architecture='multi', num_layers=3, heads=4, use_edge_weights=True):
         super(ImprovedESGGNN, self).__init__()
-        
         self.architecture = architecture
         self.use_edge_weights = use_edge_weights
-        
-        # Input projection
+        # input projection
         self.input_proj = torch.nn.Linear(input_dim, hidden_dim)
         
-        # Different architecture options
+        # different architecture options
         if architecture == 'gcn':
             # GCN layers
             self.conv_layers = torch.nn.ModuleList([
@@ -190,91 +186,74 @@ class ImprovedESGGNN(torch.nn.Module):
                 for _ in range(num_layers)
             ])
         elif architecture == 'multi':
-            # Multi-architecture (combining different types)
+            # multi-architecture
             self.conv_layers = torch.nn.ModuleList([
                 GCNConv(hidden_dim, hidden_dim),
                 SAGEConv(hidden_dim, hidden_dim),
                 GATConv(hidden_dim, hidden_dim // heads, heads=heads, concat=True)
             ])
-        
-        # Batch normalization layers
-        self.batch_norms = torch.nn.ModuleList([
-            BatchNorm(hidden_dim) for _ in range(num_layers)
-        ])
-        
-        # Skip connections / residual learning
+        # batch normalization layers
+        self.batch_norms = torch.nn.ModuleList([BatchNorm(hidden_dim) for _ in range(num_layers)])
         self.has_skip = True
-        
-        # Output MLP
+        # output MLP
         self.out_mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_dim, hidden_dim),
             torch.nn.ReLU(),
             torch.nn.Dropout(dropout),
             torch.nn.Linear(hidden_dim, output_dim)
         )
-        
-        # Dropout
+        # dropout
         self.dropout = dropout
-        
-    # Forward pass
+
+    # forward pass
     def forward(self, x, edge_index, edge_attr=None):
-        # Input projection
+        # input projection
         x = self.input_proj(x)
         x = F.relu(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
         
-        # Initial representation
+        # initial representation
         x_init = x
-        
-        # Apply convolutional layers
+        # apply convolutional layers
         if self.architecture == 'multi':
             # For multi-architecture, apply different convs sequentially
             for i, conv in enumerate(self.conv_layers):
                 if self.use_edge_weights and edge_attr is not None and isinstance(conv, GCNConv):
                     x_conv = conv(x, edge_index, edge_weight=edge_attr)
                 else:
-                    x_conv = conv(x, edge_index)
-                
+                    x_conv = conv(x, edge_index)     
                 x_conv = self.batch_norms[i](x_conv)
                 x_conv = F.relu(x_conv)
                 x_conv = F.dropout(x_conv, p=self.dropout, training=self.training)
-                
-                # Skip connection
+                # skip connection
                 if self.has_skip and x_conv.shape == x.shape:
                     x = x_conv + x
                 else:
                     x = x_conv
         else:
-            # For single architecture, apply layers with residual connections
+            # for single architecture, apply layers with residual connections
             for i, conv in enumerate(self.conv_layers):
                 if self.use_edge_weights and edge_attr is not None and isinstance(conv, GCNConv):
                     x_conv = conv(x, edge_index, edge_weight=edge_attr)
                 else:
                     x_conv = conv(x, edge_index)
-                
                 x_conv = self.batch_norms[i](x_conv)
                 x_conv = F.relu(x_conv)
                 x_conv = F.dropout(x_conv, p=self.dropout, training=self.training)
                 
-                # Skip connection
+                # skip connection
                 if self.has_skip and x_conv.shape == x.shape:
                     x = x_conv + x
                 else:
                     x = x_conv
-        
-        # Global skip connection
         if x.shape == x_init.shape:
             x = x + x_init
-        
-        # Output layers
         x = self.out_mlp(x)
-        
         return x
 
-# Improved class for training and evaluating the ESG GNN model
+# class for training and evaluating the ESG GNN model
 class ImprovedESGGraphTrainer:
-    
-    # Initialize the trainer
+    # initialize the trainer
     def __init__(self, model, device='cuda', lr=0.001, weight_decay=1e-4, scheduler_factor=0.5, scheduler_patience=10):
         self.model = model
         self.device = torch.device(device if torch.cuda.is_available() and device == 'cuda' else 'cpu')
@@ -283,40 +262,31 @@ class ImprovedESGGraphTrainer:
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, factor=scheduler_factor, patience=scheduler_patience, verbose=True
         )
-      
-    # Train for one epoch
+    # train for one epoch
     def train_epoch(self, data):
         self.model.train()
         self.optimizer.zero_grad()
-        
-        # Move data to device
         x = data.x.to(self.device)
         edge_index = data.edge_index.to(self.device)
         edge_attr = None
         if hasattr(data, 'edge_attr') and data.edge_attr is not None:
             edge_attr = data.edge_attr.to(self.device)
-        
-        # Forward pass
+        # forward pass
         out = self.model(x, edge_index, edge_attr)
-        
-        # Calculate loss only on training nodes
+        # calculate loss only on training nodes
         if hasattr(data, 'train_mask'):
-            # Apply same mask to both predictions and targets
+            # apply same mask to both predictions and targets
             loss = F.mse_loss(out[data.train_mask], data.y[data.train_mask].to(self.device))
         else:
             loss = F.mse_loss(out, data.y.to(self.device))
-        
-        # Backward pass
+        # backward pass
         loss.backward()
-        
-        # Gradient clipping to prevent exploding gradients
+        # gradient clipping to prevent exploding gradients
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-        
         self.optimizer.step()
-        
         return loss.item()
     
-    # Evaluate the model
+    # evaluate the model
     def evaluate(self, data):
         self.model.eval()    
         with torch.no_grad():
@@ -329,12 +299,10 @@ class ImprovedESGGraphTrainer:
             
             out = self.model(x, edge_index, edge_attr)
             loss = F.mse_loss(out, data.y.to(self.device))
-            
-            # Move tensors to CPU for evaluation metrics
+            # move tensors to CPU for evaluation metrics
             pred = out.detach().cpu().numpy()
             true = data.y.detach().cpu().numpy()
-            
-            # Calculate RMSE and R² for each ESG dimension
+            # calculate RMSE and R² for each ESG dimension
             metrics = {
                 'loss': loss.item(),
                 'env_rmse': np.sqrt(mean_squared_error(true[:, 0], pred[:, 0])),
@@ -346,17 +314,12 @@ class ImprovedESGGraphTrainer:
                 'overall_rmse': np.sqrt(mean_squared_error(true.flatten(), pred.flatten())),
                 'overall_r2': r2_score(true.flatten(), pred.flatten())
             }
-            
             return metrics, pred
     
-    # Cross-validation training
+    # cross-validation training
     def cross_validation(self, data, k_folds=5, epochs=200, patience=30):
         print(f"Performing {k_folds}-fold cross-validation")
-        
-        # Number of nodes
         num_nodes = data.x.size(0)
-        
-        # Store results
         cv_results = {
             'env_rmse': [],
             'social_rmse': [],
@@ -367,67 +330,47 @@ class ImprovedESGGraphTrainer:
             'overall_rmse': [],
             'overall_r2': []
         }
-        
-        # Setup k-fold cross validation
+        # setting up k-fold cross validation
         kf = KFold(n_splits=k_folds, shuffle=True, random_state=42)
         fold_indices = list(kf.split(range(num_nodes)))
-        
-        # For each fold
+        # for each fold
         for fold, (train_idx, val_idx) in enumerate(fold_indices):
             print(f"\nFold {fold+1}/{k_folds}")
-            
-            # Reset model parameters
+            # reset model parameters
             for layer in self.model.modules():
                 if hasattr(layer, 'reset_parameters'):
                     layer.reset_parameters()
-            
-            # Optimizer and scheduler
+            # optimizers and schedulers
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001, weight_decay=1e-4)
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 self.optimizer, factor=0.5, patience=10, verbose=True
             )
-            
-            # Create masks
+            # create masks
             train_mask = torch.zeros(num_nodes, dtype=torch.bool)
             val_mask = torch.zeros(num_nodes, dtype=torch.bool)
-            
             train_mask[train_idx] = True
             val_mask[val_idx] = True
-            
-            # Add masks to data
             data.train_mask = train_mask
             data.val_mask = val_mask
-            
-            # For early stopping
+            # for early stopping
             best_val_loss = float('inf')
             patience_counter = 0
             best_model_state = None
             best_metrics = None
-            
-            # Training loop
+            # training loop
             for epoch in range(epochs):
-                # Train
                 train_loss = self.train_epoch(data)
-                
-                # Validate
                 val_metrics, _ = self.evaluate(data.clone())
                 val_loss = val_metrics['loss']
-                
-                # Update scheduler
                 self.scheduler.step(val_loss)
-                
-                # Print progress
                 if (epoch + 1) % 10 == 0:
                     print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
                     print(f"E: RMSE={val_metrics['env_rmse']:.4f}, R²={val_metrics['env_r2']:.4f} | "
                           f"S: RMSE={val_metrics['social_rmse']:.4f}, R²={val_metrics['social_r2']:.4f} | "
                           f"G: RMSE={val_metrics['gov_rmse']:.4f}, R²={val_metrics['gov_r2']:.4f}")
-                
-                # Check for early stopping
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     patience_counter = 0
-                    # Save best model
                     best_model_state = {key: value.cpu() for key, value in self.model.state_dict().items()}
                     best_metrics = val_metrics
                 else:
@@ -435,18 +378,14 @@ class ImprovedESGGraphTrainer:
                     if patience_counter >= patience:
                         print(f"Early stopping at epoch {epoch+1}")
                         break
-            
-            # Add best metrics from this fold to overall results
+            # add best metrics from this fold to overall results
             for key in cv_results.keys():
                 cv_results[key].append(best_metrics[key])
-            
-            # Restore best model for this fold
+            # restore best model for this fold
             self.model.load_state_dict(best_model_state)
-        
-        # Calculate average metrics across all folds
+        # calculate average metrics across all folds
         avg_results = {key: np.mean(values) for key, values in cv_results.items()}
         std_results = {key: np.std(values) for key, values in cv_results.items()}
-        
         print("\nCross-validation results:")
         print(f"Environmental: RMSE={avg_results['env_rmse']:.4f}±{std_results['env_rmse']:.4f}, "
               f"R²={avg_results['env_r2']:.4f}±{std_results['env_r2']:.4f}")
@@ -456,30 +395,22 @@ class ImprovedESGGraphTrainer:
               f"R²={avg_results['gov_r2']:.4f}±{std_results['gov_r2']:.4f}")
         print(f"Overall: RMSE={avg_results['overall_rmse']:.4f}±{std_results['overall_rmse']:.4f}, "
               f"R²={avg_results['overall_r2']:.4f}±{std_results['overall_r2']:.4f}")
-        
         return avg_results, std_results
     
-    # Train the model
+    # train the model
     def train(self, data, epochs=300, validation_split=0.2, patience=30):
         print(f"Training on {self.device}")
-        
-        # Create train/val masks
+        # create train/val masks
         num_nodes = data.x.size(0)
         indices = list(range(num_nodes))
         train_idx, val_idx = train_test_split(indices, test_size=validation_split, random_state=42)
-        
-        # Create train and validation masks
+        # create train and validation masks
         train_mask = torch.zeros(num_nodes, dtype=torch.bool)
         val_mask = torch.zeros(num_nodes, dtype=torch.bool)
-        
         train_mask[train_idx] = True
         val_mask[val_idx] = True
-        
-        # Add masks to data
         data.train_mask = train_mask
         data.val_mask = val_mask
-        
-        # Training history
         history = {
             'train_loss': [],
             'val_loss': [],
@@ -493,27 +424,16 @@ class ImprovedESGGraphTrainer:
             'overall_r2': [],
             'learning_rates': []
         }
-        
-        # For early stopping
         best_val_loss = float('inf')
         patience_counter = 0
         best_model_state = None
         best_epoch = 0
-        
-        # Training loop
         for epoch in range(epochs):
-            # Train phase
             train_loss = self.train_epoch(data)
-            
-            # Validation phase
             val_metrics, _ = self.evaluate(data)
             val_loss = val_metrics['loss']
-            
-            # Update learning rate scheduler
             self.scheduler.step(val_loss)
             current_lr = self.optimizer.param_groups[0]['lr']
-            
-            # Update history
             history['train_loss'].append(train_loss)
             history['val_loss'].append(val_loss)
             history['env_rmse'].append(val_metrics['env_rmse'])
@@ -525,72 +445,56 @@ class ImprovedESGGraphTrainer:
             history['overall_rmse'].append(val_metrics['overall_rmse'])
             history['overall_r2'].append(val_metrics['overall_r2'])
             history['learning_rates'].append(current_lr)
-            
-            # Print progress
             if (epoch + 1) % 10 == 0:
                 print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, LR: {current_lr:.6f}")
                 print(f"E: RMSE={val_metrics['env_rmse']:.4f}, R²={val_metrics['env_r2']:.4f} | "
                       f"S: RMSE={val_metrics['social_rmse']:.4f}, R²={val_metrics['social_r2']:.4f} | "
                       f"G: RMSE={val_metrics['gov_rmse']:.4f}, R²={val_metrics['gov_r2']:.4f}")
                 print(f"Overall: RMSE={val_metrics['overall_rmse']:.4f}, R²={val_metrics['overall_r2']:.4f}")
-            
-            # Check for early stopping
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 patience_counter = 0
                 best_epoch = epoch
-                # Save best model
                 best_model_state = {key: value.cpu() for key, value in self.model.state_dict().items()}
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
                     print(f"Early stopping at epoch {epoch+1}, best epoch was {best_epoch+1}")
                     break
-            
-            # Stop if learning rate becomes too small
+            # stop if learning rate becomes too small
             if current_lr < 1e-6:
                 print(f"Learning rate too small ({current_lr:.8f}), stopping at epoch {epoch+1}")
                 break
-        
-        # Restore best model
+        # restore best model
         if best_model_state is not None:
             self.model.load_state_dict(best_model_state)
             
         return history
     
-    # Save the model
     def save_model(self, path, include_optimizer=True):
         save_dict = {
             'model_state_dict': self.model.state_dict(),
             'model_architecture': self.model.architecture if hasattr(self.model, 'architecture') else 'unknown'
         }
-        
         if include_optimizer:
             save_dict['optimizer_state_dict'] = self.optimizer.state_dict()
-            save_dict['scheduler_state_dict'] = self.scheduler.state_dict() if self.scheduler else None
-            
+            save_dict['scheduler_state_dict'] = self.scheduler.state_dict() if self.scheduler else None   
         torch.save(save_dict, path)
         print(f"Model saved to {path}")
-    
-    # Load the model
+        
+    # load the model
     def load_model(self, path, load_optimizer=True):
         checkpoint = torch.load(path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
-        
         if load_optimizer and 'optimizer_state_dict' in checkpoint:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             if 'scheduler_state_dict' in checkpoint and checkpoint['scheduler_state_dict'] and self.scheduler:
-                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-                
+                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])   
         print(f"Model loaded from {path}")
         return checkpoint.get('model_architecture', 'unknown')
-    
-    # Plot training history with improved visualization
-    def plot_training_history(self, history):
-        # Create figure with subplots
-        fig, axs = plt.subplots(2, 3, figsize=(18, 12))
         
-        # Plot loss
+    def plot_training_history(self, history):
+        fig, axs = plt.subplots(2, 3, figsize=(18, 12))
         axs[0, 0].plot(history['train_loss'], label='Train Loss')
         axs[0, 0].plot(history['val_loss'], label='Val Loss')
         axs[0, 0].set_title('Loss')
@@ -599,7 +503,7 @@ class ImprovedESGGraphTrainer:
         axs[0, 0].legend()
         axs[0, 0].grid(True, linestyle='--', alpha=0.7)
         
-        # Plot RMSE
+        # RMSE
         axs[0, 1].plot(history['env_rmse'], label='Environmental')
         axs[0, 1].plot(history['social_rmse'], label='Social')
         axs[0, 1].plot(history['gov_rmse'], label='Governance')
@@ -610,7 +514,7 @@ class ImprovedESGGraphTrainer:
         axs[0, 1].legend()
         axs[0, 1].grid(True, linestyle='--', alpha=0.7)
         
-        # Plot R²
+        # R²
         axs[0, 2].plot(history['env_r2'], label='Environmental')
         axs[0, 2].plot(history['social_r2'], label='Social')
         axs[0, 2].plot(history['gov_r2'], label='Governance')
@@ -621,7 +525,6 @@ class ImprovedESGGraphTrainer:
         axs[0, 2].legend()
         axs[0, 2].grid(True, linestyle='--', alpha=0.7)
         
-        # Plot learning rate
         if 'learning_rates' in history:
             axs[1, 0].plot(history['learning_rates'], marker='o', markersize=3)
             axs[1, 0].set_title('Learning Rate')
@@ -629,15 +532,12 @@ class ImprovedESGGraphTrainer:
             axs[1, 0].set_ylabel('Learning Rate')
             axs[1, 0].set_yscale('log')
             axs[1, 0].grid(True, linestyle='--', alpha=0.7)
-        
-        # Plot ESG balance
         env_social = [history['env_rmse'][i] / max(0.0001, history['social_rmse'][i]) 
                      for i in range(len(history['env_rmse']))]
         env_gov = [history['env_rmse'][i] / max(0.0001, history['gov_rmse'][i]) 
                   for i in range(len(history['env_rmse']))]
         social_gov = [history['social_rmse'][i] / max(0.0001, history['gov_rmse'][i]) 
                      for i in range(len(history['social_rmse']))]
-        
         axs[1, 1].plot(env_social, label='Env/Social')
         axs[1, 1].plot(env_gov, label='Env/Gov')
         axs[1, 1].plot(social_gov, label='Social/Gov')
@@ -647,15 +547,9 @@ class ImprovedESGGraphTrainer:
         axs[1, 1].set_ylabel('Ratio')
         axs[1, 1].legend()
         axs[1, 1].grid(True, linestyle='--', alpha=0.7)
-        
-        # Distribution of prediction errors
         axs[1, 2].axis('off')
-        axs[1, 2].text(0.5, 0.9, 'Best Metrics:', horizontalalignment='center', 
-                      fontsize=12, fontweight='bold')
-        
-        # Find best epoch based on validation loss
+        axs[1, 2].text(0.5, 0.9, 'Best Metrics:', horizontalalignment='center', fontsize=12, fontweight='bold')
         best_epoch = np.argmin(history['val_loss'])
-        
         metrics_text = (
             f"Best Epoch: {best_epoch}\n\n"
             f"Environmental:\n"
@@ -671,136 +565,80 @@ class ImprovedESGGraphTrainer:
             f"  RMSE: {history['overall_rmse'][best_epoch]:.4f}\n"
             f"  R²: {history['overall_r2'][best_epoch]:.4f}"
         )
-        
-        axs[1, 2].text(0.5, 0.5, metrics_text, horizontalalignment='center', 
-                      verticalalignment='center', fontsize=10)
-        
+        axs[1, 2].text(0.5, 0.5, metrics_text, horizontalalignment='center', verticalalignment='center', fontsize=10)
         plt.tight_layout()
         plt.savefig('runs/training_history_improved.png', dpi=300)
         plt.show()
-    
-    # Predict ESG scores for a document using improved features
+        
+    # Predict ESG scores for a document
     def predict_document_scores(self, graph, document_id, model_path=None):
         if model_path and os.path.exists(model_path):
             self.load_model(model_path)
-        
         self.model.eval()
-        
-        # Get sentences from document
-        sentences = graph.run("""
-            MATCH (d:Document {filename: $doc_id})-[:CONTAINS]->(s:Sentence)
-            RETURN s.id as id, s.text as text
-        """, doc_id=document_id).data()
-        
+        # get sentences from document
+        sentences = graph.run("""MATCH (d:Document {filename: $doc_id})-[:CONTAINS]->(s:Sentence) RETURN s.id as id, s.text as text""", doc_id=document_id).data()
         if not sentences:
             print(f"No sentences found for document {document_id}")
             return None
-        
         print(f"Predicting ESG scores for {len(sentences)} sentences in document {document_id}")
-        
-        # Create sentence transformer for embeddings if not already existing
+        # create sentence transformer for embeddings
         if not hasattr(self, 'embedding_model'):
             from sentence_transformers import SentenceTransformer
             self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            
-        # Process sentences
+        # process sentences
         texts = [s['text'] for s in sentences]
-        
-        # Generate embeddings
+        # generate embeddings
         embeddings = self.embedding_model.encode(texts, show_progress_bar=True)
-        
-        # Add ESG domain knowledge as additional features
+        # add ESG domain knowledge as additional features
         num_sentences = len(sentences)
-        esg_features = np.zeros((num_sentences, 3))  # [env, social, gov]
-        
+        esg_features = np.zeros((num_sentences, 3))
         for i, s in enumerate(sentences):
             text = s['text'].lower()
-            # Environmental signals
-            env_keywords = ['environmental', 'climate', 'carbon', 'emission', 'renewable', 
-                           'sustainable', 'energy', 'water', 'waste', 'recycling', 'biodiversity']
-            # Social signals
-            social_keywords = ['social', 'employee', 'diversity', 'inclusion', 'community', 
-                              'human rights', 'labor', 'health', 'safety', 'customer', 'privacy']
-            # Governance signals
-            gov_keywords = ['governance', 'board', 'compliance', 'ethics', 'transparency', 
-                           'risk', 'audit', 'executive', 'compensation', 'shareholder', 'accountability']
-            
-            # Count keyword occurrences
+            env_keywords = ['environmental', 'climate', 'carbon', 'emission', 'renewable', 'sustainable', 'energy', 'water', 'waste', 'recycling', 'biodiversity']
+            social_keywords = ['social', 'employee', 'diversity', 'inclusion', 'community', 'human rights', 'labor', 'health', 'safety', 'customer', 'privacy']
+            gov_keywords = ['governance', 'board', 'compliance', 'ethics', 'transparency', 'risk', 'audit', 'executive', 'compensation', 'shareholder', 'accountability']
             env_count = sum(1 for word in env_keywords if word in text)
             social_count = sum(1 for word in social_keywords if word in text)
             gov_count = sum(1 for word in gov_keywords if word in text)
-            
-            # Normalize counts
             total = max(1, env_count + social_count + gov_count)
             esg_features[i, 0] = env_count / total
             esg_features[i, 1] = social_count / total  
             esg_features[i, 2] = gov_count / total
-        
-        # Concatenate embeddings with ESG features
         X = np.hstack((embeddings, esg_features))
-        
-        # Create edge index based on semantic similarity
         edge_index = []
         edge_weights = []
-        
-        # Compute similarity between sentences
         similarities = cosine_similarity(embeddings)
-        
-        # Set parameters for edge creation
         similarity_threshold = 0.6
         max_connections = 10
-        
-        # Create edges between similar sentences
         for i in range(num_sentences):
-            # Remove self-similarity
             sim_scores = similarities[i].copy()
             sim_scores[i] = 0
-            
-            # Find top similar nodes
             top_indices = np.argsort(sim_scores)[-max_connections:]
             top_scores = sim_scores[top_indices]
-            
-            # Add edges where similarity exceeds threshold
             for j, score in zip(top_indices, top_scores):
                 if score >= similarity_threshold:
                     edge_index.append([i, j])
                     edge_weights.append(float(score))
-        
-        # If no edges were created, create a fully connected graph as fallback
         if not edge_index:
             print("Warning: No edges created based on similarity threshold. Creating minimal connections.")
             for i in range(num_sentences):
-                # Connect to next and previous sentence at minimum
                 if i > 0:
                     edge_index.append([i, i-1])
                     edge_weights.append(0.5)
                 if i < num_sentences - 1:
                     edge_index.append([i, i+1])
                     edge_weights.append(0.5)
-        
-        # Convert to tensors
         x = torch.FloatTensor(X)
         edge_index = torch.LongTensor(edge_index).t()
         edge_weights = torch.FloatTensor(edge_weights)
-        
-        # Make prediction
         with torch.no_grad():
             self.model.eval()
             out = self.model(x.to(self.device), edge_index.to(self.device), edge_weights.to(self.device))
-            
-            # Get sentence-level predictions
             sentence_scores = out.cpu().numpy()
-            
-            # Calculate average scores weighted by confidence
-            # Higher weights for sentences with extreme predictions (closer to 0 or 1)
-            weights = np.abs(sentence_scores - 0.5) + 0.5  # Map [0,1] -> [0.5,1]
+            weights = np.abs(sentence_scores - 0.5) + 0.5
             weighted_scores = sentence_scores * weights
             avg_scores = weighted_scores.sum(axis=0) / weights.sum(axis=0)
-            
-            # Calculate scores by averaging
             simple_avg_scores = sentence_scores.mean(axis=0)
-            
-            # Return results with both weighting strategies
             return {
                 'weighted_scores': {
                     'environmental_score': float(avg_scores[0]),
